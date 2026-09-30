@@ -4634,7 +4634,10 @@ export function loadZcodeSessions(zcodeDir = path.join(os.homedir(), ".zcode"), 
       .map((session) => {
         try {
           return loadZcodeSessionRow(db, dbPath, stat, session, taskLinkParents);
-        } catch {
+        } catch (error) {
+          // A malformed row may be dropped when browsing, but the indexer would
+          // prune the missing session, so strict callers must fail the source.
+          if (strict) throw error;
           return null;
         }
       })

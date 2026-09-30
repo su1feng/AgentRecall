@@ -1140,6 +1140,67 @@ describe("indexer", () => {
     }
   });
 
+  it("keeps ZCode sessions and user data when an exclusive lock arrives mid-scan", async () => {
+    const store = createInMemoryStore();
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-recall-zcode-midscan-lock-"));
+    const dbPath = path.join(homeDir, ".zcode", "cli", "db", "db.sqlite");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const setup = new DatabaseSync(dbPath);
+    setup.exec(`
+      PRAGMA journal_mode = DELETE;
+      CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, parent_id TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+      CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL);
+      INSERT INTO session VALUES ('sess_lock', 'Lock title', '/repo', NULL, 1750000000000, 1750000000000);
+      INSERT INTO message VALUES ('msg_1', 'sess_lock', 1750000000000, '{"role":"user"}');
+      INSERT INTO part VALUES ('part_1', 'msg_1', 'sess_lock', 1750000000000, '{"type":"text","text":"zcode lock question"}');
+    `);
+    setup.close();
+    const prototype = Object.getPrototypeOf(new DatabaseSync(":memory:")) as import("node:sqlite").DatabaseSync;
+    const originalPrepare = prototype.prepare;
+    let locker: import("node:sqlite").DatabaseSync | null = null;
+    try {
+      const loadOptions = { homeDir, includeZcode: true };
+      await syncDefaultSessionsInBatches(store, { loadOptions });
+      const [indexed] = store.searchSessions({ source: "zcode-cli", limit: 10 });
+      expect(indexed).toBeDefined();
+      store.setFavorited(indexed.sessionKey, true);
+      store.setCustomTitle(indexed.sessionKey, "Keep me");
+      store.addTag(indexed.sessionKey, "important");
+      store.setAiSummary(indexed.sessionKey, "Kept summary", "test-model");
+
+      // Take a real exclusive lock after the session list is read, before the first per-session query.
+      let sessionListRead = false;
+      vi.spyOn(prototype, "prepare").mockImplementation(function (this: import("node:sqlite").DatabaseSync, sql: string) {
+        if (sessionListRead && !locker && /FROM message/i.test(sql)) {
+          locker = new DatabaseSync(dbPath);
+          locker.exec("BEGIN EXCLUSIVE; UPDATE session SET title = title;");
+        }
+        if (/^SELECT \* FROM session ORDER BY/i.test(sql)) sessionListRead = true;
+        return originalPrepare.call(this, sql);
+      });
+      const status = await syncDefaultSessionsInBatches(store, { loadOptions });
+      vi.restoreAllMocks();
+
+      expect(locker).not.toBeNull();
+      expect(status.error).toContain("zcode-cli");
+      const kept = store.getSession(indexed.sessionKey);
+      expect(kept?.favorited).toBe(true);
+      expect(kept?.displayTitle).toBe("Keep me");
+      expect(kept?.tags).toContain("important");
+      expect(kept?.aiSummary).toBe("Kept summary");
+    } finally {
+      vi.restoreAllMocks();
+      const heldLock = locker as import("node:sqlite").DatabaseSync | null;
+      if (heldLock) {
+        heldLock.exec("ROLLBACK");
+        heldLock.close();
+      }
+      store.close();
+      fs.rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
   it("still prunes a shared-database source whose database was removed", async () => {
     const store = createInMemoryStore();
     const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-recall-removed-shared-db-"));
