@@ -407,6 +407,9 @@ Skills 页面包含 **本 App Skill**和**本地 Skill**两个区域。
 
 ### Provider
 
+选择 **Codex Official** 后，可输入或探测官网模型，再测试连接并应用为本机 Codex 默认模型。探测列表来自本机缓存，是否能调用仍以连接测试为准。Runtime Agent、已有 Chat 或 Workflow 节点明确指定的模型会覆盖默认值；要同时使用不同官网模型，请为 Runtime Agent 或节点分别选择模型。
+
+
 Provider 页面有三个独立目标：
 
 - **Codex**：使用现有官方认证，或配置 OpenAI-compatible 服务。

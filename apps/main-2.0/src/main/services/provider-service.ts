@@ -499,7 +499,9 @@ export class ProviderService {
     const apiConfig = this.withPresetDefaults(input.apiConfig);
     const endpoint = buildCodexExecEndpoint({
       ...settings,
-      summaryCodexModel: apiConfig.activeProvider === "custom" ? apiConfig.customModel : "",
+      summaryCodexModel: apiConfig.activeProvider === "official"
+        ? input.apiConfig.customModel?.trim() || ""
+        : apiConfig.customModel,
       summaryCodexConfigDir: apiConfig.customConfigDir,
     });
     let credentialSource = "Codex CLI authentication";
