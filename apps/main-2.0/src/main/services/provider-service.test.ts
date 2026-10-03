@@ -873,7 +873,7 @@ describe("summary connection test credentials", () => {
 
     const result = await harness.service.testSummaryProviderConnection({
       source: "codex",
-      baseUrl: "https://unused.example/v1",
+      baseUrl: "",
       apiKey: "",
       model: "gpt-test",
       apiFormat: "openai_responses",
