@@ -188,6 +188,19 @@ export async function probeCodexModels(input: CodexModelProbeInput, fetchImpl: P
   const providerId = input.providerId || await readActiveCodexProviderId(input.codexHome);
   const explicitKey = input.apiKey.trim();
   const requestedBaseUrl = normalizeBaseUrl(input.baseUrl);
+  // The official Codex route is OAuth/CLI-backed and intentionally has no HTTP Base URL.
+  // Its local model cache is the authoritative catalog for this route.
+  if (!requestedBaseUrl && !explicitKey && (!providerId || providerId === OFFICIAL_CODEX_PROVIDER_ID)) {
+    const snapshot = await loadCodexConfigSnapshot(input.codexHome);
+    const models = snapshot.availableModels ?? [];
+    if (models.length > 0) {
+      return {
+        models,
+        endpoint: snapshot.configPath,
+        credentialSource: snapshot.credentialSource || "Codex config",
+      };
+    }
+  }
   const configProvider = await readCodexConfigProviderSecret(
     providerId,
     requestedBaseUrl,

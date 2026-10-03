@@ -886,6 +886,7 @@ describe("summary connection test credentials", () => {
         command: "custom-codex",
         model: "gpt-test",
         modelArg: "gpt-test",
+        cliArgs: expect.arrayContaining(["--ignore-user-config", "mcp_servers={}", "features.hooks=false"]),
       }),
       expect.anything(),
       expect.anything(),

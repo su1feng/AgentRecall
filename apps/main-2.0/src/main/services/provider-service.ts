@@ -601,6 +601,13 @@ export class ProviderService {
           ...settings,
           summaryCodexModel: input.model.trim(),
           summaryCodexConfigDir: input.configDir ?? settings.summaryCodexConfigDir,
+        }, {
+          // Connection checks must not execute unrelated user MCP servers or hooks.
+          // They can fail before the selected model is reached and hide the real result.
+          cliArgs: [
+            ...(input.baseUrl.trim() ? [] : ["--ignore-user-config"]),
+            ...CODEX_CONNECTION_TEST_ARGS,
+          ],
         }),
         [{ role: "user", content: "Reply with exactly OK." }],
         AbortSignal.timeout(30_000),

@@ -274,6 +274,21 @@ describe("codex profile switching", () => {
     });
   });
 
+  it("uses the local model cache for the official Codex route without an HTTP URL", async () => {
+    await withCodexHome(async (codexHome) => {
+      await writeFile(path.join(codexHome, "config.toml"), 'model = "gpt-6-sol"\n');
+      await writeFile(path.join(codexHome, "models_cache.json"), JSON.stringify({
+        models: [{ slug: "gpt-6-sol" }, { slug: "gpt-5.6-sol" }],
+      }));
+
+      await expect(probeCodexModels({ baseUrl: "", apiKey: "", codexHome })).resolves.toEqual({
+        endpoint: path.join(codexHome, "config.toml"),
+        models: ["gpt-6-sol", "gpt-5.6-sol"],
+        credentialSource: "Codex config",
+      });
+    });
+  });
+
   it("can probe models using an API token already stored in config.toml", async () => {
     await withCodexHome(async (codexHome) => {
       await writeFile(
