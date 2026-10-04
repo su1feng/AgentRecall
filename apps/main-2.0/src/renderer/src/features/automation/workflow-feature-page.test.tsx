@@ -4,6 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkflowAgentNode, WorkflowDefinition, WorkflowRun } from "../../../../automation/engine/shared/workflow/model";
+import { registerAutomationIpc } from "../../../../main/ipc/automation";
+import type { NativeAutomationService } from "../../../../main/services/automation-service";
+import { AUTOMATION_CHANNELS } from "../../../../shared/ipc/automation";
 
 const api = vi.hoisted(() => ({
   getWorkflowCore: vi.fn(),
@@ -13,6 +16,7 @@ const api = vi.hoisted(() => ({
   saveWorkflowDefinition: vi.fn(),
   replyWorkflowPlanning: vi.fn(),
   cancelWorkflowPlanning: vi.fn(async () => undefined),
+  startWorkflowRun: vi.fn(),
 }));
 
 const sessionSearch = vi.hoisted(() => ({
@@ -134,6 +138,43 @@ describe("WorkflowFeaturePage live output", () => {
     await act(async () => root.unmount());
     container.remove();
     vi.clearAllMocks();
+  });
+
+  it("saves an applied proposal through the real IPC validator before starting a run", async () => {
+    const original = runningWorkflow().definition;
+    const proposal = { name: "检查报告", description: "检查代码", inputs: [], nodes: original.nodes };
+    original.planning = { agentId: "agent-1", messages: [{ role: "user", content: "检查代码" }], proposal };
+    api.getWorkflowCore.mockResolvedValue({ definitions: [original], runs: [] });
+    const handlers = new Map<string, Parameters<Parameters<typeof registerAutomationIpc>[0]["ipc"]["handle"]>[1]>();
+    const saveDefinition = vi.fn(async (definition: WorkflowDefinition) => definition);
+    const dispose = registerAutomationIpc({
+      ipc: { handle: (channel, handler) => { handlers.set(channel, handler); } },
+      service: {
+        requireReady: async () => undefined,
+        subscribe: () => () => undefined,
+        subscribeChanges: () => () => undefined,
+        subscribeWorkflowRunStream: () => () => undefined,
+        workflowCore: { saveDefinition },
+      } as unknown as NativeAutomationService,
+      send: () => undefined,
+    });
+    api.saveWorkflowDefinition.mockImplementation((definition: WorkflowDefinition) =>
+      handlers.get(AUTOMATION_CHANNELS.workflowDefinitionSave)!({} as Electron.IpcMainInvokeEvent, structuredClone(definition)));
+    api.startWorkflowRun.mockResolvedValue(completedWorkflow().run);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await act(async () => root.render(<WorkflowFeaturePage language="zh" globalReviewEnabled runtimeReviewEnabled />));
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "与 Agent 规划")!.click());
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "应用到画布")!.click());
+      await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Run")!.click());
+      expect(container.textContent).not.toContain("Workflow data must be bounded JSON data.");
+      expect(saveDefinition).toHaveBeenCalledOnce();
+      expect(saveDefinition.mock.lastCall?.[0].planning).toEqual({ agentId: "agent-1", messages: original.planning.messages });
+      expect(api.startWorkflowRun).toHaveBeenCalledWith(original.id, {});
+    } finally {
+      confirm.mockRestore();
+      dispose();
+    }
   });
 
   it("interviews, previews a proposal, applies it explicitly, and keeps manual edits", async () => {
