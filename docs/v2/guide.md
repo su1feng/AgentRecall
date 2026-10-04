@@ -88,13 +88,13 @@ dsh --version
 2. 点击 **一键导入本地默认配置**，让页面显示 `headless` profile 实际使用的默认模型。新版配置由 `dsh --profile headless --dump-config` 读取；旧版仍支持 `settings.yaml`。
 3. 创建 Agent 时选择 **Default** 模型，然后运行配置测试。
 
-当前官方标准入口是 `dsh --profile headless "<task>"`。它每次创建一个 fresh 会话，只在结束时返回最终文本，不提供单次模型覆盖、会话续接或 AgentRecall 自定义 MCP 注入。因此：
+AgentRecall 通过 `dsh --profile headless --json` 读取会话 ID 和最终回答，并通过 `--session-id` 续接持久化会话。需要使用支持这两个选项的 DSH 版本（可运行 `dsh --profile headless --help` 确认）。
 
-- AgentRecall 不会改写 DSH 的 profile、旧版 `settings.yaml` 或凭据文件，模型与凭据继续由 DSH 管理；
-- Chat、Workflow 和 Eval 的每次调用都是独立运行，界面不会宣称保留 DSH 上下文；
-- DSH 会为 Chat、Workflow、Eval 和配置测试的每次调用创建并持久化 fresh session；这些记录会保留在 `$DSH_HOME/sessions`，当前官方 headless 入口没有删除 API，AgentRecall 不会自动清理；
-- 非 `Default` 模型会被明确拒绝，避免看似切换成功、实际仍使用 DSH 默认模型；
-- 如果需要交互式续接或 MCP，请改用支持相应能力的 Runtime。
+- Chat 首次回复后可持续使用同一份 DSH 上下文，应用重启后仍可续接；重置员工会话后重新创建上下文。
+- Workflow 请求续接时复用已有会话；独立任务、Eval 与配置测试仍创建新会话。
+- 每轮调用都会启动一个 headless 进程，续接的是持久化上下文，不是常驻交互进程；中断后可继续会话，但不恢复被中断的具体步骤。
+- 模型与凭据继续由 DSH 管理；不支持单次模型覆盖或 AgentRecall 自定义 MCP 注入。
+- 会话保留在 `$DSH_HOME/sessions`，AgentRecall 不会自动清理。续接时需使用原配置目录和工作目录；会话不存在或不可采用时明确报错，不会静默新建会话。
 
 ### 创建 Agent
 

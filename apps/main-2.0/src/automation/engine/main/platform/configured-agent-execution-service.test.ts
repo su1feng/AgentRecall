@@ -4,25 +4,26 @@ import type { AgentChannel, ConfiguredAgent, WorkflowAgentRequest } from "../../
 import { ConfiguredAgentExecutionService } from "./configured-agent-execution-service";
 
 describe("ConfiguredAgentExecutionService", () => {
-  test("forwards a Core Workflow node execution to Runtime MCP context", async () => {
+  test.each(["codex", "dsh"] as const)("forwards a %s conversation across calls and fresh workflow requests", async (runtimeId) => {
     const agent = {
       id: "configured",
       name: "Configured",
       description: "",
-      runtimeAgentId: "codex",
+      runtimeAgentId: runtimeId,
       channelId: "codex-default",
-      modelId: "gpt-5.4",
+      modelId: runtimeId === "dsh" ? "default" : "gpt-5.4",
       tags: [],
       createdAt: 1,
       updatedAt: 1,
     } satisfies ConfiguredAgent;
     const channel = {
       id: "codex-default",
-      agentId: "codex",
+      agentId: runtimeId,
       label: "Codex",
-      models: [{ id: "gpt-5.4", label: "GPT-5.4" }],
+      models: [{ id: agent.modelId, label: agent.modelId }],
     } as AgentChannel;
-    const execute = vi.fn(async (_request: WorkflowAgentRequest) => ({ content: "Done" }));
+    const conversation = { runtimeId, codecVersion: "v1" as const, payload: { native: { sessionId: "session-test" } } };
+    const execute = vi.fn(async (_request: WorkflowAgentRequest) => ({ content: "Done", runtimeConversation: conversation }));
     const service = new ConfiguredAgentExecutionService({
       agents: () => [agent],
       channels: () => [channel],
@@ -41,6 +42,11 @@ describe("ConfiguredAgentExecutionService", () => {
         executionId: "execution",
       },
     });
+
+    const first = await service.runConversation({ configuredAgentId: agent.id, prompt: "Remember", invocation: { surface: "agent", role: "chat" } });
+    expect(first.runtimeConversation).toEqual(conversation);
+    await service.runConversation({ configuredAgentId: agent.id, prompt: "Continue", runtimeConversation: first.runtimeConversation, invocation: { surface: "agent", role: "chat" } });
+    expect(execute).toHaveBeenLastCalledWith(expect.objectContaining({ runtimeId, continuationPolicy: "resume-preferred", runtimeConversation: conversation }));
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
       invocationId: expect.any(String),
