@@ -11,7 +11,7 @@ import type {
 } from "../../shared/types";
 import { defaultModelForAgent, isModelForChannel } from "../../shared/models";
 
-const CONTINUABLE_WORKFLOW_RUNTIMES = new Set<WorkflowAgentRequest["runtimeId"]>(["codex", "claude"]);
+const CONTINUABLE_WORKFLOW_RUNTIMES = new Set<WorkflowAgentRequest["runtimeId"]>(["codex", "claude", "dsh"]);
 
 export function supportsConfiguredAgentConversation(runtimeId: WorkflowAgentRequest["runtimeId"]): boolean {
   return CONTINUABLE_WORKFLOW_RUNTIMES.has(runtimeId);
