@@ -191,6 +191,8 @@ describe("WorkflowFeaturePage live output", () => {
     let finish!: (value: unknown) => void;
     api.replyWorkflowPlanning.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     await act(async () => container.querySelector<HTMLButtonElement>(".workflow-core-planning button[type='submit']")!.click());
+    expect(answer.value).toBe("");
+    expect(container.querySelector(".workflow-core-planning-messages .is-user")?.textContent).toContain("调整检查步骤");
     await act(async () => container.querySelector<HTMLButtonElement>("[data-testid='workflow-graph']")!.click());
     const nameInput = [...container.querySelectorAll<HTMLInputElement>(".workflow-core-inspector input")].find((item) => item.value === "检查代码")!;
     await act(async () => {
@@ -198,16 +200,56 @@ describe("WorkflowFeaturePage live output", () => {
       nameInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
     api.saveWorkflowDefinition.mockRejectedValueOnce(new Error("Save failed"));
-    await act(async () => finish({ agentId: "agent-1", messages: [{ role: "assistant", content: "建议先检查输入" }] }));
+    await act(async () => finish({ agentId: "agent-1", messages: [{ role: "user", content: "调整检查步骤" }, { role: "assistant", content: "建议先检查输入" }] }));
     expect(api.saveWorkflowDefinition.mock.lastCall?.[0].nodes[0].title).toBe("规划期间手动修改");
-    expect(answer.value).toBe("调整检查步骤");
+    expect(answer.value).toBe("");
+    expect(container.querySelectorAll(".workflow-core-planning-messages .is-user")).toHaveLength(1);
+    expect(container.textContent).toContain("建议先检查输入");
     expect(container.textContent).toContain("Save failed");
     api.saveWorkflowDefinition.mockImplementationOnce(async (definition) => definition);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(answer, "下一条草稿");
+      answer.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "重试保存本次回复")!.click());
     expect(api.replyWorkflowPlanning).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain("建议先检查输入");
-    expect(answer.value).toBe("");
+    expect(answer.value).toBe("下一条草稿");
     expect(nameInput.value).toBe("规划期间手动修改");
+  });
+
+  it("sends on Enter, preserves Shift+Enter and IME confirmation, and restores a failed request", async () => {
+    api.getWorkflowCore.mockResolvedValue({ definitions: [runningWorkflow().definition], runs: [] });
+    await act(async () => root.render(<WorkflowFeaturePage language="zh" globalReviewEnabled runtimeReviewEnabled />));
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "与 Agent 规划")!.click());
+    const answer = container.querySelector<HTMLTextAreaElement>("textarea[aria-label='目标或回答']")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(answer, "检查代码");
+      answer.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    for (const init of [{ shiftKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init });
+      await act(async () => answer.dispatchEvent(event));
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(api.replyWorkflowPlanning).not.toHaveBeenCalled();
+    let fail!: (cause: Error) => void;
+    api.replyWorkflowPlanning.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => {
+      answer.dispatchEvent(enter);
+      answer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(enter.defaultPrevented).toBe(true);
+    expect(api.replyWorkflowPlanning).toHaveBeenCalledTimes(1);
+    expect(api.replyWorkflowPlanning.mock.lastCall?.[0].message).toBe("检查代码");
+    expect(answer.value).toBe("");
+    expect(container.querySelector(".workflow-core-planning-messages .is-user")?.textContent).toContain("检查代码");
+    await act(async () => fail(new Error("Planning failed")));
+    expect(answer.value).toBe("检查代码");
+    expect(answer.disabled).toBe(false);
+    expect(container.querySelector(".workflow-core-planning-messages .is-user")).toBeNull();
+    expect(container.textContent).toContain("Planning failed");
   });
 
   it("opens planning for a new Workflow and cancels an unfinished turn when the panel closes", async () => {
